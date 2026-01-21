@@ -26,7 +26,9 @@ import constants as ct
 ############################################################
 # ブラウザタブの表示文言を設定
 st.set_page_config(
-    page_title=ct.APP_NAME
+    page_title=ct.APP_NAME,
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 # ログ出力を行うためのロガーの設定
@@ -56,13 +58,16 @@ if not "initialized" in st.session_state:
 ############################################################
 # 4. 初期表示
 ############################################################
-# タイトル表示
+# タイトル表示（中央）
 cn.display_app_title()
 
-# モード表示
+# サイドバー：モード選択
 cn.display_select_mode()
 
-# AIメッセージの初期表示
+# サイドバー：説明ブロック
+cn.display_mode_guide_on_sidebar()
+
+# 中央：初期AIメッセージ（緑＋黄）
 cn.display_initial_ai_message()
 
 
