@@ -14,6 +14,38 @@ import constants as ct
 # 関数定義
 ############################################################
 
+def _is_pdf_path(file_path):
+    """
+    PDFファイルかどうかを判定（拡張子で判定）
+    """
+    return isinstance(file_path, str) and file_path.lower().endswith(".pdf")
+
+
+def _format_source_with_page(file_path, page_number):
+    """
+    PDFのみ「（ページNo.X）」を付けて表示用文字列を作る
+    - page_number は 0始まりで入ってくることが多いので +1 して表示
+    """
+    if _is_pdf_path(file_path) and page_number is not None:
+        # page_number が文字列で返ってくるケースもあるので int に寄せる
+        try:
+            page_number_int = int(page_number)
+        except Exception:
+            return file_path
+        return f"{file_path} （ページNo.{page_number_int + 1}）"
+    return file_path
+
+
+def _extract_raw_path(display_text):
+    """
+    「./xxx.pdf （ページNo.1）」のような表示用文字列から、元のパス部分だけを取り出す
+    （アイコン判定などに使う）
+    """
+    if not isinstance(display_text, str):
+        return display_text
+    return display_text.split(" （ページNo.")[0]
+
+
 def display_app_title():
     """
     タイトル表示
@@ -88,11 +120,10 @@ def display_conversation_log():
 
                         # 参照元のありかに応じて、適したアイコンを取得
                         icon = utils.get_source_icon(message['content']['main_file_path'])
-                        # 参照元ドキュメントのページ番号が取得できた場合にのみ、ページ番号を表示
-                        if "main_page_number" in message["content"]:
-                            st.success(f"{message['content']['main_file_path']}", icon=icon)
-                        else:
-                            st.success(f"{message['content']['main_file_path']}", icon=icon)
+                        # PDFだけ「（ページNo.X）」を付けて表示
+                        main_file_path = message["content"]["main_file_path"]
+                        main_page_number = message["content"].get("main_page_number")
+                        st.success(_format_source_with_page(main_file_path, main_page_number), icon=icon)
                         
                         # ==========================================
                         # ユーザー入力値と関連性が高いサブドキュメントのありかを表示
@@ -105,11 +136,8 @@ def display_conversation_log():
                             for sub_choice in message["content"]["sub_choices"]:
                                 # 参照元のありかに応じて、適したアイコンを取得
                                 icon = utils.get_source_icon(sub_choice['source'])
-                                # 参照元ドキュメントのページ番号が取得できた場合にのみ、ページ番号を表示
-                                if "page_number" in sub_choice:
-                                    st.info(f"{sub_choice['source']}", icon=icon)
-                                else:
-                                    st.info(f"{sub_choice['source']}", icon=icon)
+                                # PDFだけ「（ページNo.X）」を付けて表示
+                                st.info(_format_source_with_page(sub_choice["source"], sub_choice.get("page_number")), icon=icon)
                     # ファイルのありかの情報が取得できなかった場合、LLMからの回答のみ表示
                     else:
                         st.markdown(message["content"]["answer"])
@@ -127,8 +155,10 @@ def display_conversation_log():
                         st.markdown(f"##### {message['content']['message']}")
                         # ドキュメントのありかを一覧表示
                         for file_info in message["content"]["file_info_list"]:
-                            # 参照元のありかに応じて、適したアイコンを取得
-                            icon = utils.get_source_icon(file_info)
+                            # file_info が「…pdf （ページNo.X）」になっていても、
+                            # アイコン判定は元のパスで行う
+                            raw_path = _extract_raw_path(file_info)
+                            icon = utils.get_source_icon(raw_path)
                             st.info(file_info, icon=icon)
 
 
@@ -157,15 +187,14 @@ def display_search_llm_response(llm_response):
         
         # 参照元のありかに応じて、適したアイコンを取得
         icon = utils.get_source_icon(main_file_path)
-        # ページ番号が取得できた場合のみ、ページ番号を表示（ドキュメントによっては取得できない場合がある）
+
+        # ページ番号（0始まり）を取得できる場合だけセット
+        main_page_number = None
         if "page" in llm_response["context"][0].metadata:
-            # ページ番号を取得
             main_page_number = llm_response["context"][0].metadata["page"]
-            # 「メインドキュメントのファイルパス」と「ページ番号」を表示
-            st.success(f"{main_file_path}", icon=icon)
-        else:
-            # 「メインドキュメントのファイルパス」を表示
-            st.success(f"{main_file_path}", icon=icon)
+
+        # PDFだけ「（ページNo.X）」を付けて表示
+        st.success(_format_source_with_page(main_file_path, main_page_number), icon=icon)
 
         # ==========================================
         # ユーザー入力値と関連性が高いサブドキュメントのありかを表示
@@ -215,13 +244,8 @@ def display_search_llm_response(llm_response):
             for sub_choice in sub_choices:
                 # 参照元のありかに応じて、適したアイコンを取得
                 icon = utils.get_source_icon(sub_choice['source'])
-                # ページ番号が取得できない場合のための分岐処理
-                if "page_number" in sub_choice:
-                    # 「サブドキュメントのファイルパス」と「ページ番号」を表示
-                    st.info(f"{sub_choice['source']}", icon=icon)
-                else:
-                    # 「サブドキュメントのファイルパス」を表示
-                    st.info(f"{sub_choice['source']}", icon=icon)
+                # PDFだけ「（ページNo.X）」を付けて表示
+                st.info(_format_source_with_page(sub_choice["source"], sub_choice.get("page_number")), icon=icon)
         
         # 表示用の会話ログに格納するためのデータを用意
         # - 「mode」: モード（「社内文書検索」or「社内問い合わせ」）
@@ -293,15 +317,13 @@ def display_contact_llm_response(llm_response):
             if file_path in file_path_list:
                 continue
 
-            # ページ番号が取得できた場合のみ、ページ番号を表示（ドキュメントによっては取得できない場合がある）
+            # ページ番号（0始まり）を取得できる場合だけセット
+            page_number = None
             if "page" in document.metadata:
-                # ページ番号を取得
                 page_number = document.metadata["page"]
-                # 「ファイルパス」と「ページ番号」
-                file_info = f"{file_path}"
-            else:
-                # 「ファイルパス」のみ
-                file_info = f"{file_path}"
+
+            # PDFだけ「（ページNo.X）」を付けた表示文字列にする
+            file_info = _format_source_with_page(file_path, page_number)
 
             # 参照元のありかに応じて、適したアイコンを取得
             icon = utils.get_source_icon(file_path)

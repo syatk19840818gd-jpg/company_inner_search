@@ -124,6 +124,15 @@ if chat_message:
             # 後続の処理を中断
             st.stop()
     
+
+    # --- デバッグ表示（必要なときだけON） ---
+    with st.expander("🔍 debug: retriever context を確認", expanded=False):
+        sources = [(d.metadata.get("source"), d.metadata.get("page")) for d in llm_response.get("context", [])]
+        st.write("context件数:", len(sources))
+        st.write("ユニークファイル数:", len(set([s for s, _ in sources])))
+        st.write(sources)
+    
+    
     # ==========================================
     # 7-3. LLMからの回答表示
     # ==========================================
