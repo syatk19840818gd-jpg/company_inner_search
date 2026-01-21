@@ -20,6 +20,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 import constants as ct
 from constants import CHUNK_SIZE, CHUNK_OVERLAP, RETRIEVER_K
+from langchain_core.documents import Document as LCDocument
 
 
 ############################################################
@@ -129,8 +130,13 @@ def initialize_retriever():
         separator="\n"
     )
 
-    # チャンク分割を実施
-    splitted_docs = text_splitter.split_documents(docs_all)
+    # チャンク分割を実施（CSV統合ドキュメントは分割しない）
+    csv_merged_docs = [d for d in docs_all if d.metadata.get("file_type") == "csv_merged"]
+    other_docs = [d for d in docs_all if d.metadata.get("file_type") != "csv_merged"]
+
+    splitted_docs = text_splitter.split_documents(other_docs)
+    splitted_docs.extend(csv_merged_docs)
+
 
     # ベクターストアの作成
     db = Chroma.from_documents(splitted_docs, embedding=embeddings)
@@ -200,6 +206,36 @@ def recursive_file_check(path, docs_all):
         file_load(path, docs_all)
 
 
+def merge_csv_row_docs_to_one_doc(csv_path: str, row_docs: list):
+    """
+    CSVLoaderが作る「1行=1Document」を、検索しやすい「1CSV=1Document」に統合する。
+    かつ、1人=1行 の要約形式にし、1チャンク内に複数人入りやすく。
+    """
+    lines = []
+    for i, d in enumerate(row_docs, start=1):
+        raw = (d.page_content or "").strip()
+        if not raw:
+            continue
+
+        # CSVLoaderの出力は改行だらけなので、1行に圧縮して情報密度を上げる
+        one_line = " / ".join([x.strip() for x in raw.splitlines() if x.strip()])
+
+        # 「人事部」という検索語に引っかかるように（行に「人事」がある場合だけ）
+        # ※ “捏造”にならないよう、あくまで検索補助のタグとして付与
+        if "人事" in one_line and "人事部" not in one_line:
+            one_line += " / 部署キーワード:人事部"
+
+        lines.append(f"- {one_line}")
+
+    merged_text = (
+        f"【CSV統合】source={csv_path}\n"
+        "※この文書はCSVの全行を統合し、検索しやすいように「1人=1行」で要約整形しています。\n"
+        + "\n".join(lines)
+    )
+
+    return [LCDocument(page_content=merged_text, metadata={"source": csv_path, "file_type": "csv_merged"})]
+
+
 def file_load(path, docs_all):
     """
     ファイル内のデータ読み込み
@@ -218,6 +254,9 @@ def file_load(path, docs_all):
         # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
         loader = ct.SUPPORTED_EXTENSIONS[file_extension](path)
         docs = loader.load()
+        # CSVだけ「1CSV=1Document」に統合してから投入
+        if file_extension == ".csv":
+            docs = merge_csv_row_docs_to_one_doc(path, docs)
         docs_all.extend(docs)
 
 
